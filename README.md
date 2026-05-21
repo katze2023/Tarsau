@@ -24,9 +24,10 @@ Programın adı `tarsau` olup aşağıdaki işlemleri gerçekleştirmektedir:
 
 https://github.com/katze2023/Tarsau
 
-## Proje Dosya Yapısı
+## Proje Detayları 
 
 ```text
+## Proje Dosya Yapısı
 .
 ├── main.c        # CLI argüman ayrıştırma, komut yönlendirme ve üst akış kontrolü
 ├── archive.c     # Arşiv oluşturma motoru: Metadata inşası ve ham veri push süreçleri
@@ -84,7 +85,6 @@ $ make release
 Temizlik
 $ make clean
 
----
 
 ## Kullanım Senaryoları
 
@@ -119,5 +119,5 @@ $ ./tarsau -a archive.sau output_directory
 # Sistem kaynaklı I/O hatası (İzin vb.)   | stderr       | perror() çıktısı dinamik olarak basılır| 1
 # ====================================================================================================
 
-
+```
 Bu proje yalnızca eğitim amaçlı geliştirilmiştir.
