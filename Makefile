@@ -1,30 +1,46 @@
+# ==============================================================================
+# Sakarya Üniversitesi - Bilgisayar Mühendisliği Bölümü
+# Sistem Programlama Dersi (Dr. Öğr. Üyesi Abdullah Sevin)
+# Tarsau Projesi Kural (Makefile) Dosyası
+# ==============================================================================
+
+# 1. MAKROLARIN TANIMLANMASI 
 CC = gcc
-# Hata ayıklama ve optimize etme bayraklarını modüler hale getirdik
 CFLAGS = -Wall -Wextra -std=c11 -D_POSIX_C_SOURCE=200809L
-DEBUG_FLAGS = -g -O0
-RELEASE_FLAGS = -O3
+OBJS = sau_main.o sau_archive.o sau_extract.o sau_utils.o
+EXE = tarsau
 
-TARGET = tarsau
-SRCS = sau_main.c sau_utils.c sau_archive.c sau_extract.c
-OBJS = $(SRCS:.c=.o)
-
+# .PHONY hedefi, dizinde 'clean' adında bir dosya olması durumunda çakışmayı önler.
 .PHONY: all clean debug release
 
-all: $(TARGET)
+all: ${EXE}
 
-# Release modu: derleme sonrası optimize edilmiş sürüm
-release: CFLAGS += $(RELEASE_FLAGS)
-release: $(TARGET)
+# 2. ANA HEDEF / BAĞLAMA 
+${EXE} : ${OBJS}
+	${CC} ${CFLAGS} -o ${EXE} ${OBJS}
+	@echo == Derleme islemi basari ile tamamlandi!.. ==
 
-# Debug modu: hata ayıklama sembolleriyle derler
-debug: CFLAGS += $(DEBUG_FLAGS)
-debug: clean $(TARGET)
+# 3. AÇIK BAĞIMLILIK KONTROLLERİ 
+sau_main.o: sau_main.c sau_common.h
+	${CC} ${CFLAGS} -c sau_main.c
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS)
+sau_archive.o: sau_archive.c sau_common.h
+	${CC} ${CFLAGS} -c sau_archive.c
 
-%.o: %.c sau_common.h
-	$(CC) $(CFLAGS) -c $< -o $@
+sau_extract.o: sau_extract.c sau_common.h
+	${CC} ${CFLAGS} -c sau_extract.c
 
+sau_utils.o: sau_utils.c sau_common.h
+	${CC} ${CFLAGS} -c sau_utils.c
+
+# 4. DERLEME MODLARI
+debug: CFLAGS += -g -O0
+debug: ${EXE}
+
+release: CFLAGS += -O3
+release: ${EXE}
+
+# 5. TEMİZLİK KURALI 
 clean:
-	rm -f $(OBJS) $(TARGET) *.sau
+	@echo == Temizlik islemi baslatildi... ==
+	rm -f ${OBJS} ${EXE} *.sau

@@ -1,73 +1,162 @@
 #include "sau_common.h"
 #include <unistd.h>
 #include <fcntl.h>
-#include <stdio.h>
+#include <stdio.h>     /* snprintf — sadece string biçimlendirme, dosya I/O değil */
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
 /*
+ * sau_build_archive — .sau arşivi oluşturma motoru
+ *
  * MİMARİ MANTIK:
- * Arşivleme sürecinde metadata bölümü ve veri bölümünü sıralı yazar.
- * Metadata önce bir buffer'da derlenir, ardından HEADER_SIZE_FIELD (10 byte)
- * yazılır. Metadata parse hatalarını engellemek için '|' ve ',' karakter 
- * kontrolü sıkı bir şekilde yapılır.
+ *   1. Tüm giriş dosyaları doğrulanır ve meta bilgileri toplanır.
+ *   2. Metadata body bir tamponda derlenir.
+ *   3. HEADER_SIZE_FIELD (10 byte, soldan sıfır dolgulu ASCII sayı) yazılır.
+ *   4. Metadata body yazılır.
+ *   5. Ham veri bölümü: dosyalar sırayla, ayırıcı olmaksızın yazılır.
+ *
+ * PARAMETRE SÖZLEŞME:
+ *   argv[0]       → çıktı arşiv dosyası yolu
+ *   argv[1..N-1]  → arşivlenecek giriş dosyaları
+ *   argc          → toplam eleman sayısı (1 çıktı + N giriş)
  */
 int sau_build_archive(int argc, char **argv) {
-    char *out_path = argv[0];
-    int dst_fd = open(out_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (dst_fd == -1) { perror("Arşiv açılamadı"); exit(1); }
+    char    *out_path   = argv[0];
+    int      file_count = argc - 1;
 
-    char metadata_body[8192] = ""; // Metadata body için yeterli alan
+    /* ================================================================
+     * DÜZELTME 1 — Giriş dosyası sayısı limiti
+     *   Kontrol main.c'de de yapılıyor, ancak savunmacı programlama
+     *   gereği burada da tekrar edilir.
+     * ================================================================ */
+    if (file_count > SAU_MAX_FILES) {
+        SAU_ERR("Çok fazla giriş dosyası.\n");
+        exit(1);
+    }
+
+    /* ================================================================
+     * DÜZELTME 2 — Metadata buffer boyutu
+     *   Orijinal kod: char metadata_body[8192]
+     *   Sorun: 32 dosya × max 282 byte/kayıt = 9024 byte > 8192 → taşma!
+     *   Çözüm: SAU_META_BUF_SIZE = 10240 (tarsau.h'de tanımlı)
+     * ================================================================ */
+    char     metadata_body[SAU_META_BUF_SIZE];
+    metadata_body[0] = '\0';
+
     SauEntry entries[SAU_MAX_FILES];
-    int file_count = argc - 1;
+    size_t   total_size = 0;
 
+    /* ---- Geçiş 1: Doğrulama + metadata derleme ---- */
     for (int i = 0; i < file_count; i++) {
         char *path = argv[i + 1];
-        
-        // Karakter kontrolü
+
+        /* ============================================================
+         * Dosya adında geçersiz karakter kontrolü
+         *   '|' → metadata ayırıcısı ile çakışır
+         *   ',' → alan ayırıcısı ile çakışır
+         * ============================================================ */
         if (strchr(path, '|') || strchr(path, ',')) {
-            write(STDERR_FILENO, "Geçersiz dosya adı karakteri.\n", 29);
+            SAU_ERR("Geçersiz dosya adı karakteri.\n");
             exit(1);
         }
 
         int fd = open(path, O_RDONLY);
         if (fd == -1) { perror(path); exit(1); }
-        
-        // ASCII doğrulama (Adım 2 fonksiyonu)
+
+        /* ASCII doğrulama — geçersizse mesaj basıp exit(0) yapar */
         sau_validate_ascii_stream(fd, path);
-        
-        // İzinleri ve boyutu al
+
+        /* stat() ile boyut ve izin bilgisi */
         struct stat st;
-        fstat(fd, &st);
-        entries[i].size = st.st_size;
-        sau_fetch_permissions(path, &entries[i].permissions);
+        if (fstat(fd, &st) == -1) { perror(path); exit(1); }
+
+        entries[i].size = (size_t)st.st_size;
+
+        /* ============================================================
+         * DÜZELTME 3 — Toplam dosya boyutu limiti (200 MB)
+         *   Orijinal kodda bu kontrol YOKTU — kritik eksiklik.
+         * ============================================================ */
+        total_size += entries[i].size;
+        if (total_size > SAU_MAX_TOTAL_BYTES) {
+            SAU_ERR("Toplam dosya boyutu sınırı aşıldı.\n");
+            close(fd);
+            exit(1);
+        }
+
+        if (sau_fetch_permissions(path, &entries[i].permissions) == -1) {
+            perror(path); exit(1);
+        }
+
+        /* ============================================================
+         * DÜZELTME 4 — strncpy null terminator güvencesi
+         *   strncpy 255 karakteri kopyalar ama 256. baytı sıfırlamaz;
+         *   manuel olarak sonlandırılıyor.
+         * ============================================================ */
         strncpy(entries[i].filename, path, 255);
-        
-        // Metadata Body inşası
-        char entry_str[512];
-        snprintf(entry_str, sizeof(entry_str), "|%s,%04o,%zu", 
-                 entries[i].filename, (unsigned int)entries[i].permissions, entries[i].size);
+        entries[i].filename[255] = '\0';
+
+        /* Metadata kaydı: |dosya_adı,izin,boyut| */
+        char entry_str[320];
+        snprintf(entry_str, sizeof(entry_str), "|%s,%04o,%zu",
+                 entries[i].filename,
+                 (unsigned int)entries[i].permissions,
+                 entries[i].size);
+
+        /* Metadata buffer taşma güvencesi */
+        if (strlen(metadata_body) + strlen(entry_str) + 2 >= SAU_META_BUF_SIZE) {
+            SAU_ERR("İç hata: metadata tamponu doldu.\n");
+            close(fd);
+            exit(1);
+        }
         strcat(metadata_body, entry_str);
-        
+
         close(fd);
     }
-    strcat(metadata_body, "|");
+    strcat(metadata_body, "|");   /* Kapanış ayırıcısı */
 
-    // HEADER_SIZE_FIELD yazımı (10 byte sabit)
-    char header[11];
+    /* ---- Arşiv dosyasını aç ---- */
+    int dst_fd = open(out_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (dst_fd == -1) { perror("Arşiv açılamadı"); exit(1); }
+
+    /* HEADER_SIZE_FIELD: 10 byte, soldan sıfır dolgulu ASCII sayı
+     * Örnek: metadata_body 42 byte ise → "0000000042"
+     * Buffer 21 byte: 10 rakam + null + güvenlik payı (derleyici uyarısına karşı) */
+    char header[21];
     snprintf(header, sizeof(header), "%010zu", strlen(metadata_body));
-    write(dst_fd, header, 10);
-    write(dst_fd, metadata_body, strlen(metadata_body));
+    if (write(dst_fd, header, SAU_HEADER_SIZE_LEN) != SAU_HEADER_SIZE_LEN) {
+        perror("Header yazılamadı"); exit(1);
+    }
 
-    // Ham veri bölümü
+    /* Metadata body yaz — doğrudan write, push_bytes'a gerek yok */
+    {
+        size_t  meta_len = strlen(metadata_body);
+        size_t  written  = 0;
+        while (written < meta_len) {
+            ssize_t w = write(dst_fd, metadata_body + written, meta_len - written);
+            if (w <= 0) { perror("Metadata yazılamadı"); exit(1); }
+            written += (size_t)w;
+        }
+    }
+
+    /* ---- Geçiş 2: Ham veri bölümü ---- */
     for (int i = 0; i < file_count; i++) {
         int fd = open(argv[i + 1], O_RDONLY);
-        sau_push_bytes(fd, dst_fd, entries[i].size);
+        if (fd == -1) { perror(argv[i + 1]); exit(1); }
+        if (sau_push_bytes(fd, dst_fd, entries[i].size) == -1) {
+            perror("Veri kopyalama hatası"); exit(1);
+        }
         close(fd);
     }
 
     close(dst_fd);
-    write(STDOUT_FILENO, "Dosyalar birleştirildi.\n", 24);
+
+    /* ================================================================
+     * DÜZELTME 5 — write() byte sayısı UTF-8 uyumlu hale getirildi
+     *   Orijinal kod: write(..., "Dosyalar birleştirildi.\n", 24)
+     *   'ş' = 2 byte → toplam 25 byte, 24 değil → son '\n' yazılmazdı!
+     *   Çözüm: SAU_OUT() makrosu strlen() ile uzunluğu hesaplar.
+     * ================================================================ */
+    SAU_OUT("Dosyalar birleştirildi.\n");
     return 0;
 }
