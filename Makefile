@@ -1,7 +1,8 @@
 # ==============================================================================
 # Sakarya Üniversitesi - Bilgisayar Mühendisliği Bölümü
-# Sistem Programlama Dersi (Dr. Öğr. Üyesi Abdullah Sevin)
+# Sistem Programlama Dersi - 2025-2026 Bahar Dönemi
 # Tarsau Projesi Kural (Makefile) Dosyası
+# Fatih Kaya - G231210072
 # ==============================================================================
 
 # 1. MAKROLARIN TANIMLANMASI 

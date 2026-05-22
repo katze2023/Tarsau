@@ -1,3 +1,10 @@
+/*
+* Sakarya Üniversitesi - Bilgisayar Mühendisliği Bölümü
+* Sistem Programlama Dersi - 2025-2026 Bahar Dönemi
+* Tarsau Projesi Kural (Makefile) Dosyası
+* Fatih Kaya - G231210072
+*/
+
 #include "sau_common.h"
 #include <unistd.h>
 #include <fcntl.h>
@@ -8,9 +15,9 @@
 #include <errno.h>
 
 /*
- * sau_extract_archive — .sau arşivini açma motoru
+ * sau_extract_archive — .sau uzantılı arşivleri dışarı çıkartan fonksiyon
  *
- * MİMARİ MANTIK:
+ * İşleyiş:
  *   1. HEADER_SIZE_FIELD (10 byte) okunur → metadata boyutu belirlenir.
  *   2. Metadata body heap'e okunur ve '|' ile token'lara ayrılır.
  *   3. Her token "dosya_adı,izin,boyut" biçiminde POSIX-uyumlu manuel
@@ -20,7 +27,7 @@
  *   6. chmod() ile orijinal izinler geri atanır.
  *   7. Çıktı mesajı write() ile yazılır.
  *
- * PARAMETRE SÖZLEŞME:
+ * Parametreler:
  *   argv[0] → arşiv dosyası yolu
  *   argv[1] → hedef dizin yolu
  *   argc    → 2 (main.c tarafından her zaman 2 gönderilir)
@@ -31,9 +38,7 @@ int sau_extract_archive(int argc, char **argv) {
     char *arch_path  = argv[0];
     char *target_dir = argv[1];
 
-    /* ================================================================
-     * Hedef dizini oluştur (zaten varsa mkdir() EEXIST döner — sorun değil)
-     * ================================================================ */
+    /* Hedef dizin yoksa oluştur */
     mkdir(target_dir, 0755);
 
     /* ---- Arşiv dosyasını aç ---- */
@@ -43,15 +48,7 @@ int sau_extract_archive(int argc, char **argv) {
         exit(1);
     }
 
-    /* ================================================================
-     * DÜZELTME 1 — HEADER_SIZE_FIELD okuma
-     *   Orijinal: read(fd, header, 10) dönüş değeri kontrol edilmiyordu.
-     *   Düzeltme: Dönüş değeri 10 değilse arşiv bozuk demektir.
-     *
-     * DÜZELTME 2 — atoi → strtoul
-     *   atoi() hata durumunda sessizce 0 döner.
-     *   strtoul() ile geçersiz header içeriği tespit edilir.
-     * ================================================================ */
+    /* Arşivin başındaki 10 byte'lık (metadata uzunluğunu tutan) kısmı okunur */
     char header[SAU_HEADER_SIZE_LEN + 1];
     header[SAU_HEADER_SIZE_LEN] = '\0';
 
@@ -61,7 +58,7 @@ int sau_extract_archive(int argc, char **argv) {
         exit(1);
     }
 
-    /* Header'ın tamamının rakam olup olmadığını doğrula */
+    /* Header'ın tamamının rakam olup olmadığını doğrulama */
     for (int i = 0; i < SAU_HEADER_SIZE_LEN; i++) {
         if (header[i] < '0' || header[i] > '9') {
             SAU_ERR("Arşiv dosyası uygunsuz veya bozuk!\n");
@@ -79,10 +76,7 @@ int sau_extract_archive(int argc, char **argv) {
         exit(1);
     }
 
-    /* ================================================================
-     * DÜZELTME 3 — malloc dönüş değeri kontrolü
-     *   Orijinal kodda kontrol yoktu; NULL pointer dereference riski.
-     * ================================================================ */
+    /* Metadata'nın bellekte tutulması için yeterli boyutta alan (heap üzerinde) ayırıyoruz */
     char *meta_body = malloc(meta_size + 1);
     if (meta_body == NULL) {
         SAU_ERR("Bellek tahsis hatası.\n");
@@ -90,11 +84,7 @@ int sau_extract_archive(int argc, char **argv) {
         exit(1);
     }
 
-    /* ================================================================
-     * DÜZELTME 4 — Kısmi okuma (partial read) koruması
-     *   Orijinal: read(fd, meta_body, meta_size) tek seferde okunuyordu.
-     *   Kernel büyük tamponları parça parça verebilir; döngü şart.
-     * ================================================================ */
+    /* Sistemin büyük okumalarda yapabileceği kısmı okumalara (partial read) karşı döngüyle veriyi çekiyoruz */
     size_t total_read = 0;
     while (total_read < meta_size) {
         ssize_t r = read(fd, meta_body + total_read, meta_size - total_read);
@@ -116,19 +106,12 @@ int sau_extract_archive(int argc, char **argv) {
 
     while (token != NULL && files_extracted < SAU_MAX_FILES) {
         /*
-         * DÜZELTME 5 — sscanf kaldırıldı, POSIX-uyumlu manuel parse
-         *
-         *   Orijinal: sscanf(token, "%255[^,],%4s,%s", name, p_str, s_str)
-         *   sscanf, stdio.h'den gelmekte ve dersin kısıtlamalarıyla çelişebilir.
-         *   Daha önemlisi, hata yönetimi zayıftır.
-         *
-         *   Yeni yaklaşım: strchr() ile virgül konumları bulunur,
-         *   strncpy() ile alanlar kopyalanır — tamamen string.h / stdlib.h.
-         *
-         *   Format: "dosya_adı,0644,42"
+         * Elde edilen her parçanın formatı: dosya_adı,izin,boyut
+         * "," kullanılarak manuel olarak ayrıştırılır (sscanf/fscanf YOK)
          */
         char *comma1 = strchr(token, ',');
-        if (comma1 == NULL) {
+        if (comma1 == NULL) 
+        {
             SAU_ERR("Arşiv dosyası uygunsuz veya bozuk!\n");
             free(meta_body);
             close(fd);
@@ -136,7 +119,8 @@ int sau_extract_archive(int argc, char **argv) {
         }
 
         char *comma2 = strchr(comma1 + 1, ',');
-        if (comma2 == NULL) {
+        if (comma2 == NULL) 
+        {
             SAU_ERR("Arşiv dosyası uygunsuz veya bozuk!\n");
             free(meta_body);
             close(fd);
@@ -146,7 +130,8 @@ int sau_extract_archive(int argc, char **argv) {
         /* Dosya adı */
         char name[256] = {0};
         size_t name_len = (size_t)(comma1 - token);
-        if (name_len == 0 || name_len >= 256) {
+        if (name_len == 0 || name_len >= 256) 
+        {
             SAU_ERR("Arşiv dosyası uygunsuz veya bozuk!\n");
             free(meta_body);
             close(fd);
@@ -158,7 +143,8 @@ int sau_extract_archive(int argc, char **argv) {
         /* İzin (oktal string, örn. "0755") */
         char p_str[8] = {0};
         size_t p_len = (size_t)(comma2 - (comma1 + 1));
-        if (p_len == 0 || p_len >= 8) {
+        if (p_len == 0 || p_len >= 8) 
+        {
             SAU_ERR("Arşiv dosyası uygunsuz veya bozuk!\n");
             free(meta_body);
             close(fd);
@@ -209,22 +195,19 @@ int sau_extract_archive(int argc, char **argv) {
     free(meta_body);
     close(fd);
 
-    /* ================================================================
-     * DÜZELTME 6 — Çıktı mesajı format uyumu
-     *
-     *   Orijinal: printf("%s dizininde %d dosyalar açıldı.\n", ...)
-     *   Sorunlar:
-     *     a) printf() → stdio.h tamponlu I/O → yasak
-     *     b) Sadece sayı yazdırıyor; belge dosya adlarını listeliyor:
-     *        "d1 dizininde t1, t2, t3, t4.txt ve t5.dat dosyaları açıldı."
-     *
-     *   Düzeltme: write() ile parça parça yaz, son dosyadan önce " ve " ekle.
-     * ================================================================ */
+    /* 
+    * Çıktı mesajını proje belgesinde istenen formata (d1 dizininde t1, t2 ve t3.txt dosyaları açıldı)
+    * uygun olarak, stdio.h tamponları (printf vb) kullanmadan, ardışık write() çağrılarıyla hazırlır ve yazdırır
+    */
     SAU_OUT(target_dir);
     SAU_OUT(" dizininde ");
-    for (int i = 0; i < files_extracted; i++) {
-        if (i > 0) {
-            if (i == files_extracted - 1) {
+    for (int i = 0; i < files_extracted; i++) 
+    {
+        if (i > 0) 
+        {
+            /* Son dosyadan önce ' ve ' ekle, diğerleri arasına virgül ekle */
+            if (i == files_extracted - 1) 
+            {
                 SAU_OUT(" ve ");
             } else {
                 SAU_OUT(", ");
