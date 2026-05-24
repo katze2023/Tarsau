@@ -1,7 +1,7 @@
 /*
 * Sakarya Üniversitesi - Bilgisayar Mühendisliği Bölümü
 * Sistem Programlama Dersi - 2025-2026 Bahar Dönemi
-* Tarsau Projesi Kural (Makefile) Dosyası
+* Tarsau Projesi utils.c Dosyası
 * Fatih Kaya - G231210072
 */
 
@@ -23,7 +23,8 @@
  * istenilen formatta hata mesajı basılır ve program 0 koduyla (istenildiği gibi) sonlandırılır.
  */
 
-int sau_validate_ascii_stream(int fd, const char *fname) {
+int sau_validate_ascii_stream(int fd, const char *fname) 
+{
     unsigned char buf[SAU_IO_BUFFER];
     ssize_t       bytes_read;
 
@@ -34,7 +35,8 @@ int sau_validate_ascii_stream(int fd, const char *fname) {
         for (ssize_t i = 0; i < bytes_read; i++) {
             unsigned char b = buf[i];
             /* İzin verilen karakter kontrolü. İzin verilen karakterler: yazdırılabilir ASCII + \t \n \r */
-            if (b > 0x7F || (b < 0x20 && b != '\n' && b != '\r' && b != '\t')) {
+            if (b > 0x7F || (b < 0x20 && b != '\n' && b != '\r' && b != '\t')) 
+            {
                 /*
                  * Hatalı bir karaktere rastlanırsa programın istenilen uyarıyı vererek anında sorunsuz (exit 0) olarak sonlanması sağlanır.
                  */
@@ -57,12 +59,14 @@ int sau_validate_ascii_stream(int fd, const char *fname) {
  * - read ve write sistem çağrılarının tam olarak istenen miktarda byte 
  * işlememesi (partial read/write) riskine karşı döngülerle korunmuştur.
  */
-ssize_t sau_push_bytes(int src_fd, int dst_fd, size_t n) {
+ssize_t sau_push_bytes(int src_fd, int dst_fd, size_t n) 
+{
     unsigned char buf[SAU_IO_BUFFER];
     size_t        total_written = 0;
 
     /* Kopyalanması gereken toplam byte sayısına ulaşana kadar döngüye girer */
-    while (total_written < n) {
+    while (total_written < n) 
+    {
         /* Okunacak byte miktarı tampon boyutundan büyükse parça parça okunur */
         size_t  to_read = (n - total_written > SAU_IO_BUFFER)
                           ? SAU_IO_BUFFER
@@ -72,7 +76,8 @@ ssize_t sau_push_bytes(int src_fd, int dst_fd, size_t n) {
 
         /* Okunan veriyi hedef dosyaya yazar */
         ssize_t written = 0;
-        while (written < r) {
+        while (written < r) 
+        {
             ssize_t w = write(dst_fd, buf + written, (size_t)(r - written));
             if (w <= 0) return -1;     /* Yazma hatası */
             written += w;
@@ -90,7 +95,8 @@ ssize_t sau_push_bytes(int src_fd, int dst_fd, size_t n) {
  * - Kodun okunabilirliğini artırmak ve arşivleme (push) ile arşivden
  * çıkartma (pull) eylemlerini kavramsal olarak ayırmak için kullanılır.
  */
-ssize_t sau_pull_bytes(int src_fd, int dst_fd, size_t n) {
+ssize_t sau_pull_bytes(int src_fd, int dst_fd, size_t n) 
+{
     return sau_push_bytes(src_fd, dst_fd, n);
 }
 
@@ -102,7 +108,8 @@ ssize_t sau_pull_bytes(int src_fd, int dst_fd, size_t n) {
  * - Mode bilgisi içinden 07777 bit maskesi yardımıyla yalnızca erişim izinleri 
  * (read/write/execute ve özel bitler) elde edilir.
  */
-int sau_fetch_permissions(const char *path, mode_t *out) {
+int sau_fetch_permissions(const char *path, mode_t *out) 
+{
     struct stat st;
     if (stat(path, &st) == -1) return -1;
     *out = st.st_mode & 07777;

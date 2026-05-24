@@ -1,7 +1,7 @@
 /*
 * Sakarya Üniversitesi - Bilgisayar Mühendisliği Bölümü
 * Sistem Programlama Dersi - 2025-2026 Bahar Dönemi
-* Tarsau Projesi Kural (Makefile) Dosyası
+* Tarsau Projesi common.h Dosyası
 * Fatih Kaya - G231210072
 */
 
